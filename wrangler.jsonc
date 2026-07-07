@@ -1,0 +1,10 @@
+{
+  "$schema": "https://raw.githubusercontent.com/cloudflare/workers-sdk/main/packages/wrangler/config-schema.json",
+  "name": "activelog",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-02-14",
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS"
+  }
+}

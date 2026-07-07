@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>ActiveLog — event-log pattern</title>
+<style>
+/*
+  family/tokens.css
+  -------------------------------------------------------------------
+  Shared design tokens for the PurplePincher domain family.
+
+  The first block (`:root` ground palette + type system) is extracted
+  verbatim from purplepincher-landing-reference/src/landing.html (the
+  `:root` at lines 13-27). It is the fixed visual baseline for every
+  family site; do not edit it here without also editing the reference.
+
+  The second block (per-site accent variables) names the additional
+  accents from the Round 1 plan (ROUND_1_glm.md, Section 2 table).
+  Each family site overrides `--claw` with the one accent it has chosen
+  (e.g. deckboss.net writes `--claw: var(--antifoul);` in its own
+  site-level `:root`). The variables below are defined so the swap is
+  by name, not by magic hex.
+
+  Pair with family/base.css. Inline at build time; never fetch at
+  runtime. See family/README.md.
+*/
+
+:root {
+  /* --- ground palette + type system (verbatim from landing.html) --- */
+  --ink: #0E1A1C;
+  --ink-deep: #081113;
+  --shell: #F0E9D8;
+  --shell-dim: #C9C0AB;
+  --claw: #A8548C;
+  --claw-deep: #7A3B5E;
+  --lattice: #5FB4C7;
+  --lattice-dim: #3F8FA3;
+  --hardened: #D98B54;
+  --line: rgba(240, 233, 216, 0.14);
+  --display: "Fraunces", Georgia, serif;
+  --body: "IBM Plex Sans", -apple-system, sans-serif;
+  --mono: "IBM Plex Mono", "SF Mono", monospace;
+
+  /* --- per-family-site accents (ROUND_1_glm.md Section 2 table) ---
+     Each site swaps --claw for one of these in its own :root. They are
+     defined here so the swap reads by name. Sites that do not use a
+     given accent simply ignore it; unused variables cost nothing once
+     inlined. */
+
+  /* deckboss.net — anti-fouling bottom-paint oxide. The most confident
+     accent in the table: a real, specific marine color that reads
+     "working vessel" to anyone who knows boats and "warm, weathered,
+     not corporate" to everyone else. Deliberately avoids marine-blue
+     cliché and AI-startup violet. */
+  --antifoul: #B0533A;
+
+  /* cocapn.com — the water under the hull. A deeper blue-green than
+     purplepincher's cyan lattice, distinct from both --ink and
+     --lattice. cocapn.com is the site *about* the boat, so the accent
+     is the water. Keeps the cool family register while being its own. */
+  --depth: #1F4A5C;
+
+  /* superinstance.ai — warm coral / sand-rose. The softest, warmest
+     accent, for the "soft origin" station of the lifecycle.
+     NOTE: superinstance.ai turned out to already have its own real,
+     different visual identity live on Cloudflare Pages — a green-on-
+     black terminal aesthetic. This variable is therefore likely to go
+     UNUSED for superinstance.ai specifically (that site will probably
+     keep its existing palette rather than adopt the family skeleton).
+     It is kept defined here because ROUND_1_glm.md Section 2 named it;
+     removing it would silently contradict the plan. If superinstance.ai
+     does adopt the family skeleton, --reef is the accent the plan
+     assigns it. */
+  --reef: #D97A5C;
+
+  /* cocapn.ai promotes --lattice (cyan) to primary rather than
+     introducing a new accent variable; no new token needed here.
+     See ROUND_1_glm.md Section 2 table and family/README.md. */
+}
+
+
+/*
+  family/base.css
+  -------------------------------------------------------------------
+  Shared reset, type scale, and the load-bearing component shapes for
+  the PurplePincher domain family. Extracted and generalized from
+  purplepincher-landing-reference/src/landing.html.
+
+  Purplepincher-specific content text has been removed; the CSS
+  structure and class names are preserved verbatim so any family site
+  can reuse them by writing HTML that uses these classes.
+
+  Depends on the tokens defined in family/tokens.css. Inline both
+  files at build time into each site's <style> block; never fetch at
+  runtime. See family/README.md.
+
+  Components provided (the named load-bearing shapes):
+    .eyebrow                    mono section label
+    .chain / .chain-step        numbered sequence (order carries meaning)
+    .ledger / .ledger-row       registry of named things with tags
+    .demo-card                  interactive-surface shell
+    .bar-list                   numbered criteria list
+*/
+
+/* ---------- reset + base type ---------- */
+
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+
+body {
+  margin: 0;
+  background: var(--ink);
+  color: var(--shell);
+  font-family: var(--body);
+  font-size: 17px;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
+}
+
+a { color: var(--lattice); }
+a:focus-visible, button:focus-visible, input:focus-visible {
+  outline: 2px solid var(--lattice);
+  outline-offset: 3px;
+}
+
+::selection { background: var(--claw); color: var(--shell); }
+
+.wrap {
+  max-width: 920px;
+  margin: 0 auto;
+  padding: 0 28px;
+}
+
+/* ---------- .eyebrow : mono section label ---------- */
+
+.eyebrow {
+  font-family: var(--mono);
+  font-size: 12.5px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--lattice);
+  margin: 0 0 22px;
+  position: relative;
+}
+
+/* ---------- .chain : a real sequence, numbered because order carries meaning ---------- */
+
+.chain {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0;
+  margin: 56px 0 8px;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+
+.chain-step {
+  flex: 1 1 220px;
+  padding: 22px 20px 22px 0;
+  border-right: 1px solid var(--line);
+}
+.chain-step:last-child { border-right: none; }
+
+.chain-num {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--lattice-dim);
+  display: block;
+  margin-bottom: 8px;
+}
+
+.chain-step p {
+  margin: 0;
+  font-size: 0.94rem;
+  color: var(--shell-dim);
+}
+
+.chain-step strong {
+  display: block;
+  font-family: var(--display);
+  font-weight: 500;
+  font-size: 1.05rem;
+  color: var(--shell);
+  margin-bottom: 4px;
+}
+
+/* ---------- .demo-card : interactive-surface shell ----------
+   The outer shell only. Each site's signature surface lives inside
+   (a canvas, a state machine, a logbook replay, etc.) and is built
+   by that site. The grid gives a primary area + a narrow sidebar
+   (readout / controls); override grid-template-columns in site CSS
+   if your surface needs a different interior layout. */
+
+.demo-card {
+  position: relative;
+  margin-top: 36px;
+  background: rgba(8, 17, 19, 0.55);
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  padding: 28px;
+  display: grid;
+  grid-template-columns: 1fr 260px;
+  gap: 28px;
+  align-items: stretch;
+}
+
+@media (max-width: 680px) {
+  .demo-card { grid-template-columns: 1fr; }
+}
+
+/* ---------- .ledger : real accounting, not decoration ---------- */
+
+.ledger {
+  margin-top: 32px;
+  border-top: 1px solid var(--line);
+}
+
+.ledger-row {
+  display: grid;
+  grid-template-columns: 1.4fr 2.4fr auto;
+  gap: 20px;
+  align-items: baseline;
+  padding: 16px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+@media (max-width: 620px) {
+  .ledger-row { grid-template-columns: 1fr; gap: 6px; }
+}
+
+.ledger-row.flagship {
+  background: linear-gradient(90deg, rgba(217,139,84,0.08), transparent 40%);
+}
+
+.ledger-name {
+  font-family: var(--display);
+  font-weight: 500;
+  font-size: 1.05rem;
+}
+.ledger-name a { color: var(--shell); text-decoration: none; border-bottom: 1px solid var(--line); }
+.ledger-name a:hover { border-color: var(--lattice); color: var(--lattice); }
+
+.ledger-desc { font-size: 0.92rem; color: var(--shell-dim); }
+
+.ledger-tag {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--lattice-dim);
+  white-space: nowrap;
+  text-align: right;
+}
+.ledger-tag.hardened { color: var(--hardened); }
+
+/* ---------- .bar-list : the actual mechanism, plainly ---------- */
+
+.bar-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  counter-reset: bar;
+}
+
+.bar-list li {
+  counter-increment: bar;
+  position: relative;
+  padding: 14px 0 14px 40px;
+  border-bottom: 1px solid var(--line);
+  font-size: 0.95rem;
+  color: var(--shell-dim);
+}
+.bar-list li::before {
+  content: counter(bar);
+  position: absolute;
+  left: 0;
+  top: 14px;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--lattice-dim);
+  width: 24px;
+}
+.bar-list strong { color: var(--shell); }
+
+/* ---------- reduced motion ---------- */
+
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+}
+
+</style>
+</head>
+<body>
+
+<section class="hero">
+  <p class="eyebrow">ActiveLog</p>
+  <!-- COPY: HERO_HEADLINE -->
+  <h1>A log format that outlasts whatever writes it</h1>
+  <!-- COPY: HERO_SUBHEAD -->
+  <p class="subhead">Most event logs are owned by the code that created them: change the device, rewrite the service, and the trail goes silent. ActiveLog keeps the envelope constant — <code>alv</code>, <code>dev</code>, <code>seq</code>, <code>ts</code>, <code>mono</code>, <code>type</code>, <code>body</code> — so any language or future version can still append to the same timeline. It is the pattern that already powers DeckBoss's real, shipped logbook.</p>
+</section>
+
+<section>
+  <!-- COPY: WHAT_THIS_IS -->
+  <h2>What This Is</h2>
+  <p>ActiveLog is the JSON envelope convention that powers real event logging across this product family. Each event is encoded as an object with these fields: <code>alv</code> (schema version), <code>dev</code> (device ID), <code>seq</code> (sequence number), <code>ts</code> (timestamp), <code>mono</code> (monotonic counter), <code>type</code> (event type), and <code>body</code> (event payload).</p>
+</section>
+
+<section class="demo-card">
+  <!-- COPY: REAL_QUICKSTART -->
+  <h3>Quick Start</h3>
+  <pre><code>{
+  "alv": 1,
+  "dev": "abc123",
+  "seq": 42,
+  "ts": "2025-02-14T12:00:00Z",
+  "mono": 1234567890,
+  "type": "temperature_read",
+  "body": { "sensor": "cabin", "value": 22.5 }
+}</code></pre>
+</section>
+
+<!-- COPY: HONESTY_NOTE -->
+<section>
+  <p class="honesty-note"><em>Honesty note: ActiveLog is a real, working pattern, not a polished product. The code is installable and in use today; the surrounding site is still being built.</em></p>
+</section>
+
+</body>
+</html>
