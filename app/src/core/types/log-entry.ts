@@ -13,12 +13,17 @@ import { isoDateString, uuidV4, SCHEMA_VERSION } from "./common";
  * a field needs to change, it changes here first.
  *
  * PORTED FROM deckboss's `core/types/log-entry.ts`, then trimmed to be
- * domain-neutral: ActiveLog is not fishing-specific (or voice-specific), so
- * the fishing/voice capture fields (entities, transcript, audio, source) are
- * dropped and replaced by a generic `tags: string[]`. The envelope-derived
- * metadata fields (`dev`, `seq`, `timestamp`, `gps`) are optional/nullable —
- * ActiveLog must not force a caller to have a device id, a sequence number,
- * or a GPS fix just to record something.
+ * domain-neutral. Correction from an earlier pass of this file: only the
+ * fishing-specific *content* field (`entities`) is dropped, replaced by a
+ * generic `tags: string[]`. `transcript`, `audio`, and `source` are kept —
+ * they describe the domain-neutral *capture mechanism* (voice-to-text is
+ * Phase 1's whole product, not a fishing-specific add-on), not fishing
+ * content. `source` is now a free-form string (deckboss pinned it to a
+ * fixed transcription-engine enum; ActiveLog has no fixed engine
+ * vocabulary). The envelope-derived metadata fields (`dev`, `seq`,
+ * `timestamp`, `gps`) are optional/nullable — ActiveLog must not force a
+ * caller to have a device id, a sequence number, or a GPS fix just to
+ * record something.
  *
  * THE MERGE-SAFE INVARIANT IS PRESERVED VERBATIM: `corrections` and
  * `thread_id` keep deckboss's exact shape. DIVERGENCE FROM A NAIVE
@@ -53,17 +58,45 @@ export const GPSReadingSchema = z.object({
 export type GPSReading = z.infer<typeof GPSReadingSchema>;
 
 /**
+ * The result of a transcription engine run (webspeech, whisper, or any
+ * future engine) — the interpretation of a capture, not the capture-time
+ * fact itself. See `buildEntry`'s comment in entry-builder.ts for why this
+ * is stored as a Correction rather than a base-record field.
+ */
+export const TranscriptResultSchema = z.object({
+  text: z.string(),
+  confidence: z.number().min(0).max(1),
+  language: z.string(),
+  engine: z.string(),
+});
+export type TranscriptResult = z.infer<typeof TranscriptResultSchema>;
+
+/** Metadata about a captured audio blob. The blob itself lives in storage
+ * (keyed by `filename`), never inline in the LogEntry — this is pointer +
+ * facts only. */
+export const AudioMetaSchema = z.object({
+  filename: z.string(),
+  duration_ms: z.number().nonnegative(),
+  format: z.string(),
+  size_bytes: z.number().nonnegative(),
+});
+export type AudioMeta = z.infer<typeof AudioMetaSchema>;
+
+/**
  * A Correction is the only way an entry changes after creation. `amend`
  * carries a partial overlay of editable fields (never id/timestamp — the
  * capture facts are permanent); `retract` carries just a reason. Corrections
  * are applied in array order at read time.
  *
- * EditableFields is trimmed to the domain-neutral set: in ActiveLog the only
- * user-editable content is `tags`, so an amend can only overlay tags.
+ * EditableFields is the domain-neutral user-editable set: `tags` (manual
+ * edits) and `transcript` (the first transcription result is itself applied
+ * as a correction — see entry-builder.ts — since it's an interpretation of
+ * the capture, not a capture-time fact).
  */
 export const EditableFieldsSchema = z
   .object({
     tags: z.array(z.string()),
+    transcript: TranscriptResultSchema,
   })
   .partial();
 export type EditableFields = z.infer<typeof EditableFieldsSchema>;
@@ -129,6 +162,11 @@ const logEntryShape = {
   dev: z.string().nullable().optional(), // envelope: originating device id
   seq: z.number().int().nonnegative().nullable().optional(), // envelope: per-device sequence
   gps: GPSReadingSchema.nullable(),
+  audio: AudioMetaSchema.nullable(), // present iff this entry was voice-captured
+  transcript: TranscriptResultSchema.nullable(), // base-record value stays null; the
+  // first real transcript is applied as a Correction (see entry-builder.ts) so the
+  // capture/interpretation split holds even for the very first transcription.
+  source: z.string().nullable(), // free-form: "voice" | a future capture mechanism's own name
   tags: z.array(z.string()),
   thread_id: uuidV4, // defaults to id; links related entries. Verbatim from deckboss.
   version: z.string(),
@@ -164,6 +202,8 @@ export function newEntrySkeleton(params: {
   dev?: string | null;
   seq?: number | null;
   threadId?: string;
+  audio?: AudioMeta | null;
+  source?: string | null;
 }): LogEntry {
   return {
     id: params.id,
@@ -171,6 +211,9 @@ export function newEntrySkeleton(params: {
     dev: params.dev ?? null,
     seq: params.seq ?? null,
     gps: params.gps,
+    audio: params.audio ?? null,
+    transcript: null,
+    source: params.source ?? null,
     tags: params.tags ?? [],
     thread_id: params.threadId ?? params.id,
     version: SCHEMA_VERSION,

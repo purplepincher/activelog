@@ -1,6 +1,7 @@
 import { newId } from "../../utils/id";
 import { nowIso } from "../../utils/date";
 import { mimeToExt, readAudioDurationMs } from "../../utils/file";
+import { SCHEMA_VERSION } from "../types/common";
 import type {
   LogEntry,
   GPSReading,
@@ -48,21 +49,23 @@ const HUMAN_AUTHOR: CorrectionAuthor = { kind: "human" };
  * extraction — `tags` starts empty and is filled only by explicit edits.
  */
 export async function buildEntry(params: BuildEntryParams): Promise<LogEntry> {
-  const ts = params.timestamp ?? nowIso();
+  const timestamp = params.timestamp ?? nowIso();
 
   const audio = params.audioBlob ? await buildAudioMeta(params.audioBlob, params.dev, params.seq) : null;
   const thread_id = params.threadId ?? newId();
 
   const entry: LogEntry = {
+    id: newId(),
     dev: params.dev,
     seq: params.seq,
-    ts,
+    timestamp,
     gps: params.gps,
     audio,
     transcript: null,
     tags: [],
     source: params.source ?? "voice",
     thread_id,
+    version: SCHEMA_VERSION,
     corrections: [],
   };
 
