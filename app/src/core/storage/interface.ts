@@ -87,11 +87,13 @@ export const ATTACHMENTS_DIR = ".activelog/attachments";
 
 /**
  * Maps an entry to its on-disk path, bucketed by capture date (UTC) so a
- * folder stays browseable by day. ActiveLog's `timestamp` is nullable (an
- * imported or manually-entered entry may have no capture time), so a null
- * timestamp is routed under an `undated/` bucket rather than crashing — the
- * only deviation from deckboss's otherwise identical helper, and forced by
- * the domain-neutral schema.
+ * folder stays browseable by day. `timestamp` is nullable (an imported or
+ * manually-entered entry may have no capture time), so a null timestamp is
+ * routed under an `undated/` bucket rather than crashing — the only
+ * deviation from deckboss's otherwise identical helper, and forced by the
+ * domain-neutral schema. Identity is `id` (a uuid, verbatim from deckboss),
+ * not `dev`+`seq` — those are envelope-derived metadata, optional, and not
+ * guaranteed unique on their own (a device that doesn't stamp seq).
  */
 export function entryPath(timestamp: string | null, id: string): string {
   if (timestamp === null) {

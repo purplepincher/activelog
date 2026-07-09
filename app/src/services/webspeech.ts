@@ -74,6 +74,15 @@ export class WebSpeechTranscriber {
   private _hadNetworkError = false;
 
   /**
+   * Streams recognized text as it arrives so the capture UI can show a live
+   * transcript. `finalText` is the joined stable phrases recognized so far;
+   * `interimText` is the current in-flight partial. Additive: `stop()` still
+   * returns the final TranscriptResult exactly as before — this is a view of
+   * the same accumulation, not a separate capture path.
+   */
+  onResult: ((finalText: string, interimText: string) => void) | null = null;
+
+  /**
    * True if recognition ever reported a "network" error during this
    * session — i.e. the browser tried to ship audio to a cloud recognition
    * service and couldn't reach it. This is the common case when offline or
@@ -103,14 +112,20 @@ export class WebSpeechTranscriber {
     this.recognition.lang = language;
 
     this.recognition.onresult = (event: SpeechRecognitionEvent) => {
+      let interim = "";
       for (let i = event.resultIndex; i < event.results.length; i++) {
         const result = event.results[i];
-        if (!result || !result.isFinal) continue;
+        if (!result) continue;
         const alt = result[0];
         if (!alt) continue;
-        this.finalChunks.push(alt.transcript.trim());
-        this.confidences.push(alt.confidence || 0.8);
+        if (result.isFinal) {
+          this.finalChunks.push(alt.transcript.trim());
+          this.confidences.push(alt.confidence || 0.8);
+        } else {
+          interim += alt.transcript;
+        }
       }
+      this.onResult?.(this.finalChunks.join(" "), interim);
     };
 
     // Chrome periodically ends continuous recognition on its own; restart
