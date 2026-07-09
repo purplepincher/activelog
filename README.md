@@ -1,45 +1,67 @@
-# activelog
+# ActiveLog Phase 1 — Core Modules (UI pending)
 
-Landing page for **activelog.ai** — a Cloudflare Worker that serves a single
-static HTML page introducing *ActiveLog*, a proposed JSON event-log envelope
-convention.
+This branch contains the building‑blocks for the Phase 1 ActiveLog Progressive Web App. The modules that handle audio capture, live transcription, file‑system storage, and markdown entry creation are implemented and tested (extracted from the proven, shipped [`deckboss`](https://github.com/purplepincher/deckboss) codebase). The user interface that ties them together into the promised “pick a folder, tap record, see a markdown file” flow is **not yet wired** – the current `app/src/App.tsx` is a scaffold placeholder. The integration is being built by other agents on this same branch; a `git pull` should soon bring in the working UI.
 
-This repo is part of the PurplePincher / SuperInstance domain family. Two of
-its siblings — [`activeledger`](https://github.com/purplepincher/activeledger)
-and [`luciddreamer`](https://github.com/purplepincher/luciddreamer) — share the
-exact same Worker + design-system skeleton, differing only in the page they
-serve and the Worker name.
-
-> **Read this first:** the repository you are holding contains **no
-> implementation** of the ActiveLog envelope. It is a one-page marketing /
-> explainer site. What the underlying installable package actually is, and where
-> the page's claims do and do not line up with code, is spelled out in
-> [docs/product-status.md](docs/product-status.md). The short version is in the
-> [Honesty / status](#honesty--status) section below.
+This branch replaces the earlier landing‑page‑only Worker with real application code, even though the full end‑to‑end experience is not yet complete on this commit. Every claim below is verified against the files present in `app/src/`.
 
 ---
 
-## What is actually in this repo
+## What exists (the core modules)
 
-A Cloudflare Worker whose entire job is to serve a static asset directory. There
-is no application logic, no server-side processing, and no build step beyond
-what Wrangler does natively.
+| Path | Status | What it does |
+|---|---|---|
+| `app/src/core/audio/recorder.ts` | ✅ real today | `AudioRecorder` wraps `MediaRecorder` with a 1‑second timeslice, a configurable auto‑stop safety net, and `onDataAvailable` callbacks. |
+| `app/src/services/webspeech.ts` | ✅ real today | Typed wrapper around the browser’s `SpeechRecognition` (Web Speech API). Returns interim and final results; distinguishes a “network error” (offline) from genuine silence. |
+| `app/src/core/storage/interface.ts` | ✅ real today | `StorageAdapter` interface + constants (`STORAGE_ROOT`, `MANIFEST_PATH`, `ATTACHMENTS_DIR`) and path helpers (`entryPath`, `attachmentPath`). |
+| `app/src/core/storage/adapters/file‑system‑access.ts` | ✅ real today | `FileSystemAccessAdapter` – reads/writes files directly in the folder the user picks via `showDirectoryPicker`. Persists the handle to IndexedDB for reload; re‑requests permission on each load. |
+| `app/src/core/storage/adapters/indexed‑db.ts` | ✅ real today | `IndexedDBAdapter` – automatic fallback when the File System Access API is unavailable. Three separate databases to avoid a known idb‑keyval race. |
+| `app/src/core/tensor‑log/entry‑builder.ts` | ✅ real today | `buildEntry()` assembles the canonical YAML‑front‑matter markdown with id, timestamp, audio metadata, transcript, etc. |
+| `app/src/core/tensor‑log/entry‑parser.ts` | ✅ real today | `parseEntry()` and `tryParseEntry()` that round‑trip a markdown file back to a typed `LogEntry`. |
+| `app/src/core/tensor‑log/entry‑serializer.ts` | ✅ real today | `serializeEntry()` produces the full markdown text including corrections section. |
+| `app/src/core/types/log‑entry.ts` | ✅ real today | Zod schemas for `LogEntry`, `AudioMeta`, `TranscriptResult`, `GPSReading`, and related types. |
+| `app/src/core/diagnostics.ts` | ✅ real today | `Diagnostics` tracking counters for recordings, sync attempts, entries skipped, etc. Persistent to IndexedDB. |
+| `app/src/utils/date.ts` | ✅ real today | `nowIso()` helper. |
+| `app/src/App.tsx` | ⚠️ placeholder scaffold | Returns a static `<div>` placeholder. The UI that wires the modules together will land in this file (or be moved to separate components) in a subsequent commit. |
 
+---
+
+## What the UI *will* do (once wired)
+
+When the integration is complete, the single‑screen app will:
+
+1. Prompt the user to pick a folder (File System Access API).
+2. Show a “Record” button.
+3. On tap: start `AudioRecorder` and `WebSpeechTranscriber` simultaneously.
+4. On stop: build a markdown file via `buildEntry()`, write it to the picked folder, and update the manifest.
+5. On reload: restore the folder handle, list entries, and display them.
+
+Until that UI code lands, you can verify each module’s correctness by reading the source or by running unit tests (none have been committed yet – see [What this does NOT do yet](#what-this-does-not-do-yet)).
+
+---
+
+## Running locally (as‑is)
+
+```bash
+cd app
+npm install
+npm run dev
 ```
-activelog/
-├── src/index.ts        # 13-line request handler: env.ASSETS.fetch(request) + 404/500
-├── public/index.html   # the page that gets served (ActiveLog explainer)
-├── family/             # shared PurplePincher design-system skeleton (see below)
-│   ├── README.md          # operator's manual for the design system
-│   ├── tokens.css         # :root palette + type scale (inlined into the page)
-│   ├── base.css           # reset + component classes (.eyebrow, .chain, .ledger, …)
-│   ├── provenance-panel.css
-│   └── provenance-panel.html
-└── wrangler.jsonc      # name="activelog", assets dir ./public, binding ASSETS
+
+The Vite dev server will start; the placeholder page shows “ActiveLog Phase 1 — scaffold placeholder, not yet wired.” That is expected on this commit. The underlying modules can be exercised manually by importing them from the browser console or by writing a small test harness.
+
+---
+
+## Deploying
+
+Deployment uses the same Cloudflare Workers + static‑assets pattern as the earlier landing‑page version. The Worker at `src/index.ts` and the config at `wrangler.jsonc` are unchanged. When the UI is ready, you can deploy the built app:
+
+```bash
+cd app && npm run build && cd ..
+wrangler deploy --dry-run   # preview
+wrangler deploy             # deploy
 ```
 
-`src/index.ts` is byte-for-byte identical to the handler in `activeledger` and
-`luciddreamer`:
+The Worker’s handler:
 
 ```ts
 export default {
@@ -55,81 +77,38 @@ export default {
 };
 ```
 
-Every request is handed to the Workers [static assets](https://developers.cloudflare.com/workers/static-assets/)
-binding (`env.ASSETS`). If no file matches, the Worker returns `404`; on an
-exception it returns `500`. That is the whole runtime behavior.
-
-### The `family/` design system
-
-`family/` is the shared PurplePincher design skeleton, documented in
-[`family/README.md`](family/README.md). Its architecture is a deliberate
-**inline-at-build-time, never-fetch-at-runtime** rule: `tokens.css` and
-`base.css` are copied into the page's `<style>` block (which is why
-`public/index.html` is self-contained and makes no runtime CSS requests).
-
-Two notes a reader should be aware of:
-
-- The page does **not** perform the per-site accent swap described in
-  `family/README.md`. It leaves `--claw` at the default aubergine, so this site
-  currently renders in the reference palette rather than a dedicated activelog
-  accent.
-- The `provenance-panel.*` honesty component ships in `family/` but is **not**
-  used by this page. The page has its own inline "Honesty note" instead.
+Every request goes to the static‑assets binding; missing paths return `404`.
 
 ---
 
-## Run it
+## What this does NOT do yet
 
-No `package.json`, no dependencies to install — Wrangler talks to the TypeScript
-entry directly. Wrangler 4.x is what this was authored against.
+Markers:  
+✅ **real today** – present in this commit  
+⚠️ **real but conditional** – present but may change or be removed  
+🔮 **later phase** – planned but not yet coded
 
-```bash
-# local dev server (serves public/index.html)
-wrangler dev
-
-# validate config + bundle without deploying
-wrangler deploy --dry-run
-
-# deploy to Cloudflare (requires you to be authenticated to the activelog account)
-wrangler deploy
-```
-
-`wrangler deploy --dry-run` was verified against this repo: it reads the
-`./public` assets directory, bundles the Worker, and reports the `env.ASSETS`
-binding.
+| Feature | Status | Explanation |
+|---|---|---|
+| User‑facing record button and live UI | 🔮 later phase | `App.tsx` is a placeholder; the screen that lets you pick a folder, tap record, and see entries is not yet wired. |
+| GPS integration | 🔮 later phase | The `GPSReading` type is defined, but no code reads the Geolocation API. |
+| Chat / messaging | 🔮 later phase | No real‑time collaboration. |
+| Wake‑word detection | 🔮 later phase | Not implemented. |
+| User‑facing storage backend toggle | 🔮 later phase | IndexedDB is used only as automatic fallback; no UI lets you choose. |
+| Hardware I/O (serial, Bluetooth, external mic) | 🔮 later phase | Not supported. |
+| Domain‑specific skin or accent | 🔮 later phase | The UI will use the default aubergine `--claw` palette until a per‑site accent is applied. |
+| Unit tests | 🔮 later phase | No test runner or tests are present. (The modules are extracted from a tested codebase, but no tests ship in this repo yet.) |
 
 ---
 
-## Honesty / status
+## Provenance
 
-Using the family's honesty-marker convention:
+ActiveLog’s core modules are extracted from [`deckboss`](https://github.com/purplepincher/deckboss), a real, shipped fishing‑logbook PWA. The audio‑recording, transcription, storage‑adapter, and markdown‑entry code was battle‑tested there first.
 
-- ✅ **real today** — the static landing page renders; the Worker serves it via
-  `env.ASSETS`; the `family/` design-system assets are present and inlined.
-- ⚠️ **real but conditional** — the *ActiveLog envelope convention* the page
-  describes (`alv`, `dev`, `seq`, `ts`, `mono`, `type`, `body`) is a **design
-  documented on the page, not code in this repo**. The only installable
-  artifact published under this name is the PyPI package `activelog-agent` (by
-  the same org's `superinstance` publisher), and **it is a different product**:
-  a wearable-fitness "Fitness Guardian" agent (`ActiveLogAgent` with
-  `log_hrv` / `log_sleep` / `log_activity` / `log_recovery`), not an event-log
-  envelope. Its current `0.2.0` release also fails to `import` with a
-  `SyntaxError` (see [docs/product-status.md](docs/product-status.md)).
-- 🔮 **later phase / not done** — no envelope schema, encoder, or decoder exists
-  in this repo; no tests, no CI, no `package.json`; the page's claim that the
-  envelope "powers DeckBoss's real, shipped logbook" refers to a **different**
-  repo and cannot be verified from here.
-
-> ⚠️ **Do not `pip install activelog`.** The bare name `activelog` on PyPI is an
-> **unrelated** third-party logging utility (by a different author, last
-> released 2020). It has nothing to do with this project.
+The design‑system skeleton (`family/` directory) is shared with sibling repos [`activeledger`](https://github.com/purplepincher/activeledger) and [`luciddreamer`](https://github.com/purplepincher/luciddreamer). Its operator’s manual is at [`family/README.md`](family/README.md).
 
 ---
 
-## Related
+## Previous version
 
-- `docs/product-status.md` — the verified reality of `activelog-agent` on PyPI
-  versus what this landing page claims.
-- [`family/README.md`](family/README.md) — the design-system operator's manual.
-- Sibling landing repos: [`activeledger`](https://github.com/purplepincher/activeledger),
-  [`luciddreamer`](https://github.com/purplepincher/luciddreamer).
+This branch replaces a repo that was a landing‑page‑only Cloudflare Worker serving a single static HTML page describing a proposed “ActiveLog envelope” convention. The old honest assessment is preserved in `docs/product-status.md`. The present README supersedes that document for this branch.
