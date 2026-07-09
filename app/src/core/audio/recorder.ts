@@ -38,7 +38,10 @@ export class AudioRecorder {
   private stopResolve: ((blob: Blob) => void) | null = null;
 
   onDataAvailable: ((chunk: Blob) => void) | null = null;
-  onAutoStop: (() => void) | null = null;
+  /** Fires when the max-duration safety net trips, WITH the Blob captured up
+   * to that point. The recorder stops itself before invoking this, so callers
+   * receive real audio to save rather than a notification to discard. */
+  onAutoStop: ((blob: Blob) => void) | null = null;
 
   constructor(private config: RecorderConfig = {}) {}
 
@@ -82,8 +85,13 @@ export class AudioRecorder {
     const maxDurationMs = this.config.maxDurationMs ?? 300_000;
     this.maxDurationTimer = setTimeout(() => {
       if (this.state === "recording") {
-        this.onAutoStop?.();
-        void this.stop();
+        // Stop FIRST (the single source of the captured Blob), then notify —
+        // so onAutoStop receives the audio actually captured up to the limit
+        // instead of firing before any blob exists. The previous order fired
+        // onAutoStop() then ran a fire-and-forget `void this.stop()` whose
+        // blob nobody consumed, so callers had nothing to save and discarded
+        // the whole recording.
+        void this.stop().then((blob) => this.onAutoStop?.(blob));
       }
     }, maxDurationMs);
   }

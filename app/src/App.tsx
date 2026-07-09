@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { FileSystemAccessAdapter } from "./core/storage/adapters/file-system-access";
+import { IndexedDBAdapter } from "./core/storage/adapters/indexed-db";
 import {
   ATTACHMENTS_DIR,
   entryPath,
   STORAGE_ROOT,
+  type StorageAdapter,
 } from "./core/storage/interface";
 import { AudioRecorder, RecorderPermissionError } from "./core/audio/recorder";
 import { WebSpeechTranscriber, isWebSpeechSupported } from "./services/webspeech";
@@ -76,7 +78,7 @@ function formatWhen(ts: string | null): string {
   return new Date(ts).toLocaleString();
 }
 
-type ConnState = "checking" | "needs-folder" | "needs-permission" | "ready" | "unsupported";
+type ConnState = "checking" | "needs-folder" | "needs-permission" | "ready";
 type Phase = "idle" | "recording" | "saving";
 
 // ---- Design tokens (Phase 1 visual polish) ----------------------------
@@ -125,15 +127,24 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [entries, setEntries] = useState<LogEntry[]>([]);
 
+  // Which storage backend resolved as active, so the copy stays honest: a
+  // picked folder is real, user-owned files; IndexedDB (the fallback when the
+  // File System Access API is absent) is opaque browser storage that isn't a
+  // folder the user can browse or back up. Initialised from the sync capability
+  // check so the first paint already shows the right wording (no flash).
+  const [storageKind, setStorageKind] = useState<"folder" | "browser">(
+    () => (FileSystemAccessAdapter.isSupported() ? "folder" : "browser"),
+  );
+
   const recorderRef = useRef<AudioRecorder | null>(null);
   const transcriberRef = useRef<WebSpeechTranscriber | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   // Ref mirror of the adapter so async handlers (stop) always read the live
   // instance rather than a stale closure value.
-  const adapterRef = useRef<FileSystemAccessAdapter | null>(null);
+  const adapterRef = useRef<StorageAdapter | null>(null);
 
   // ---- connection bootstrap -------------------------------------------
-  const loadEntries = useCallback(async (a: FileSystemAccessAdapter) => {
+  const loadEntries = useCallback(async (a: StorageAdapter) => {
     try {
       const files = await a.listFiles(`${STORAGE_ROOT}/`);
       const mdFiles = files
@@ -156,9 +167,19 @@ export default function App() {
     let cancelled = false;
     (async () => {
       if (!FileSystemAccessAdapter.isSupported()) {
-        setConn("unsupported");
+        // No File System Access API (Safari/Firefox): fall back to IndexedDB,
+        // which implements the same StorageAdapter contract and needs no
+        // picker or permission. It's opaque browser storage, not a real
+        // folder — storageKind flags that so the copy below stays honest
+        // instead of claiming "your folder".
+        const idb = new IndexedDBAdapter();
+        adapterRef.current = idb;
+        setStorageKind("browser");
+        setConn("ready");
+        void loadEntries(idb);
         return;
       }
+      setStorageKind("folder");
       const restored = await FileSystemAccessAdapter.restore();
       if (cancelled) return;
       if (!restored) {
@@ -217,6 +238,81 @@ export default function App() {
     transcriberRef.current = null;
   };
 
+  // Shared persistence path used by both the manual Stop button and the
+  // 5-minute auto-stop safety limit. Both arrive here with a Blob in hand
+  // (manual: from recorder.stop(); auto: handed to onAutoStop after the
+  // recorder stops itself) and run the identical sequence: stop the
+  // transcriber → buildEntry() → serializeEntry() → write the note, then
+  // write the audio blob best-effort so a failed attachment can never lose
+  // the note → reload entries. `autoStopped` only changes the status copy.
+  const saveRecording = useCallback(
+    async (blob: Blob, autoStopped: boolean) => {
+      const a = adapterRef.current;
+      if (!a) return;
+      setPhase("saving");
+      setBusy(autoStopped ? "Time limit reached — saving…" : "Saving…");
+
+      const transcriber = transcriberRef.current;
+      const liveTranscript = transcriber?.stop();
+      const hadNetworkError = transcriber?.hadNetworkError ?? false;
+      transcriberRef.current = null;
+
+      // Web Speech is network-backed on most browsers: if it errored out and
+      // produced nothing, leave transcript unset so the entry honestly reads
+      // "no transcript" instead of a confident-looking blank.
+      let transcript = liveTranscript;
+      if (transcript && transcript.text === "" && hadNetworkError) {
+        transcript = undefined;
+      }
+
+      try {
+        const seq = currentSeq();
+        const entry = await buildEntry({
+          dev: getDev(),
+          seq,
+          audioBlob: blob,
+          gps: null,
+          transcript,
+          source: "voice",
+        });
+
+        const markdown = serializeEntry(entry);
+        const path = entryPath(entry.timestamp, entry.id);
+        await a.writeFile(path, markdown);
+
+        if (entry.audio) {
+          // The note (the markdown) is what the user cares about; the audio is
+          // best-effort and must never be able to lose the note if it fails.
+          try {
+            await a.writeBlob(`${ATTACHMENTS_DIR}/${entry.audio.filename}`, blob);
+          } catch (err) {
+            console.error("audio blob write failed", err);
+          }
+        }
+
+        commitSeq(seq);
+        await loadEntries(a);
+        setLive({ final: "", interim: "" });
+        setElapsedMs(0);
+        setPhase("idle");
+        if (autoStopped) {
+          setError(
+            "Stopped at the 5-minute limit — what you recorded up to that point was saved.",
+          );
+        }
+      } catch (err) {
+        setError(
+          err instanceof Error ? err.message : "Could not save the recording.",
+        );
+        resetCaptureRefs();
+        setPhase("idle");
+      } finally {
+        setBusy(null);
+      }
+    },
+    [loadEntries],
+  );
+
   const startRecording = useCallback(async () => {
     setError(null);
     setLive({ final: "", interim: "" });
@@ -225,15 +321,13 @@ export default function App() {
     const recorder = new AudioRecorder();
     recorderRef.current = recorder;
 
-    // At the 5-minute safety limit the recorder stops itself and discards the
-    // blob (its own contract). We reset the UI cleanly rather than chaining a
-    // second stop() that would race the internal one.
-    recorder.onAutoStop = () => {
+    // At the 5-minute safety limit the recorder stops itself and hands us the
+    // blob captured up to that point. Route it through the same save path as a
+    // manual Stop so the recording is never discarded (see saveRecording).
+    recorder.onAutoStop = (blob: Blob) => {
       clearTimer();
-      resetCaptureRefs();
-      setPhase("idle");
-      setElapsedMs(0);
-      setError("Recording stopped automatically at the time limit.");
+      recorderRef.current = null;
+      void saveRecording(blob, true);
     };
 
     try {
@@ -262,71 +356,26 @@ export default function App() {
       () => setElapsedMs(Date.now() - startedAt),
       200,
     );
-  }, []);
+  }, [saveRecording]);
 
   const stopRecording = useCallback(async () => {
     const recorder = recorderRef.current;
-    const a = adapterRef.current;
-    if (!recorder || !a) return;
+    if (!recorder) return;
     clearTimer();
     setPhase("saving");
-    setBusy("Saving…");
-
     try {
       const blob = await recorder.stop();
       recorderRef.current = null;
-
-      const transcriber = transcriberRef.current;
-      const liveTranscript = transcriber?.stop();
-      const hadNetworkError = transcriber?.hadNetworkError ?? false;
-      transcriberRef.current = null;
-
-      // Web Speech is network-backed on most browsers: if it errored out and
-      // produced nothing, leave transcript unset so the entry honestly reads
-      // "no transcript" instead of a confident-looking blank.
-      let transcript = liveTranscript;
-      if (transcript && transcript.text === "" && hadNetworkError) {
-        transcript = undefined;
-      }
-
-      const seq = currentSeq();
-      const entry = await buildEntry({
-        dev: getDev(),
-        seq,
-        audioBlob: blob,
-        gps: null,
-        transcript,
-        source: "voice",
-      });
-
-      const markdown = serializeEntry(entry);
-      const path = entryPath(entry.timestamp, entry.id);
-      await a.writeFile(path, markdown);
-
-      if (entry.audio) {
-        // The note (the markdown) is what the user cares about; the audio is
-        // best-effort and must never be able to lose the note if it fails.
-        try {
-          await a.writeBlob(`${ATTACHMENTS_DIR}/${entry.audio.filename}`, blob);
-        } catch (err) {
-          console.error("audio blob write failed", err);
-        }
-      }
-
-      commitSeq(seq);
-      await loadEntries(a);
-      setLive({ final: "", interim: "" });
-      setElapsedMs(0);
-      setPhase("idle");
+      await saveRecording(blob, false);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not save the recording.");
+      setError(
+        err instanceof Error ? err.message : "Could not save the recording.",
+      );
       recorderRef.current?.cancel();
       resetCaptureRefs();
       setPhase("idle");
-    } finally {
-      setBusy(null);
     }
-  }, [loadEntries]);
+  }, [saveRecording]);
 
   // Tidy up the timer if the component unmounts mid-recording.
   useEffect(() => () => clearTimer(), []);
@@ -384,7 +433,9 @@ export default function App() {
             lineHeight: 1.5,
           }}
         >
-          Voice notes that persist as real files on disk.
+          {storageKind === "browser"
+            ? "Voice notes that persist on this device."
+            : "Voice notes that persist as real files on disk."}
         </p>
       </header>
 
@@ -416,26 +467,7 @@ export default function App() {
         </div>
       )}
 
-      {conn === "unsupported" && (
-        <div
-          style={{
-            ...cardStyle,
-            background: COLOR.warnTint,
-            borderColor: COLOR.warnBorder,
-            padding: SP.s3,
-            marginBottom: SP.s2,
-          }}
-        >
-          <strong>This browser can't pick a folder.</strong>
-          <p style={{ margin: `${SP.s1}px 0 0`, lineHeight: 1.5 }}>
-            The File System Access API (needed to save logs as files in a folder
-            you choose) isn't available here. Use a recent Chrome or Edge on
-            desktop to run ActiveLog.
-          </p>
-        </div>
-      )}
-
-      {conn !== "ready" && conn !== "unsupported" && (
+      {conn !== "ready" && (
         <section
           style={{
             ...cardStyle,
@@ -651,9 +683,11 @@ export default function App() {
         }}
       >
         <p style={{ margin: 0 }}>
-          Notes save as plain files in a folder you choose — no account, no
-          ActiveLog sync. Live transcription runs through your browser's speech
-          engine, which may be cloud-backed.
+          {storageKind === "browser"
+            ? "Notes save to this browser's local storage (IndexedDB) — they stay on this device but aren't a folder you can browse or back up. Use Chrome or Edge to save them as real files you own."
+            : "Notes save as plain files in a folder you choose — no account, no ActiveLog sync."}{" "}
+          Live transcription runs through your browser's speech engine, which may
+          be cloud-backed.
         </p>
         <p style={{ margin: `${SP.s1}px 0 0`, fontSize: 12, color: COLOR.faint }}>
           ActiveLog {APP_VERSION} · local-first
