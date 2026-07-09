@@ -127,8 +127,13 @@ export const CorrectionSchema = z.object({
   author: CorrectionAuthorSchema.optional(),
   // Optional, not required: a correction written before this field existed
   // has no `deviceId` on disk. New corrections are stamped at creation time;
-  // absent means "created before device metadata was recorded."
-  deviceId: z.string().uuid().optional(),
+  // absent means "created before device metadata was recorded." Free-form
+  // string (NOT uuid-constrained): entry-builder.ts stamps this directly
+  // from LogEntry.dev (an arbitrary envelope device id, e.g. "abc123" —
+  // itself `z.string()`, not uuid), so constraining deviceId to uuid here
+  // would reject every correction from a real, non-uuid device id. Caught
+  // by entry-serializer.test.ts's round-trip test.
+  deviceId: z.string().optional(),
   reason: z.string().optional(),
   fields: EditableFieldsSchema.optional(), // present for "amend", absent for "retract"
 });

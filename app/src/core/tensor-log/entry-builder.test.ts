@@ -15,6 +15,7 @@ describe('buildEntry', () => {
       text: 'Hello world',
       engine: 'test',
       confidence: 0.95,
+      language: 'en',
     };
 
     const entry = await buildEntry({
@@ -43,6 +44,7 @@ describe('buildEntry', () => {
       text: '',
       engine: 'test',
       confidence: 0.95,
+      language: 'en',
     };
 
     const entry = await buildEntry({
@@ -62,6 +64,7 @@ describe('buildEntry', () => {
       text: 'Hello world',
       engine: 'test',
       confidence: 0.95,
+      language: 'en',
     };
 
     const entry = await buildEntry({
@@ -92,7 +95,7 @@ describe('buildEntry', () => {
       tags: [],
       source: 'voice',
       thread_id: 't1',
-      version: 1,
+      version: '1.0',
       corrections: [],
     };
 

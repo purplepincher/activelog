@@ -13,6 +13,7 @@ describe('round‑trip', () => {
       text: 'Hello world',
       engine: 'test',
       confidence: 0.95,
+      language: 'en',
     };
 
     const original = await buildEntry({
@@ -22,7 +23,7 @@ describe('round‑trip', () => {
       timestamp,
       gps: null,
       transcript,
-      threadId: 'thread-xyz',
+      threadId: '11111111-1111-4111-8111-111111111111',
     });
 
     const serialized = serializeEntry(original);
@@ -33,7 +34,10 @@ describe('round‑trip', () => {
     expect(parsed.timestamp).toBe(original.timestamp);
     expect(parsed.tags).toEqual(original.tags);
     expect(parsed.corrections).toHaveLength(original.corrections.length);
-    expect(JSON.stringify(parsed.corrections)).toEqual(JSON.stringify(original.corrections));
+    // Structural equality, not JSON.stringify: key order isn't guaranteed to
+    // survive a YAML round-trip, and it shouldn't need to — the round-trip
+    // contract is data equivalence, not byte-identical serialization.
+    expect(parsed.corrections).toEqual(original.corrections);
     expect(parsed.thread_id).toBe(original.thread_id);
     expect(parsed.id).toBe(original.id);
   });
