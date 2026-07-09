@@ -48,6 +48,10 @@ interface FileSystemHandlePermissionDescriptor {
 
 declare global {
   interface Window {
+    // `mode` IS a standard member of the spec's DirectoryPickerOptions
+    // (defaults to "read"); setting "readwrite" up front avoids a second
+    // permission prompt on initial pick. Verified against the WICG File
+    // System Access API editor's draft and MDN.
     showDirectoryPicker(options?: {
       id?: string;
       mode?: FileSystemPermissionMode;
@@ -64,6 +68,23 @@ declare global {
   }
   interface FileSystemDirectoryHandle {
     entries(): AsyncIterableIterator<[string, FileSystemHandle]>;
+  }
+}
+
+/**
+ * Thrown when the File System Access API is unavailable — e.g. in Firefox,
+ * Safari, or any context where `window.showDirectoryPicker` doesn't exist.
+ * Mirrors `RecorderPermissionError` (core/audio/recorder.ts) so callers can
+ * catch this by type instead of receiving a raw, unhelpful TypeError.
+ */
+export class FileSystemAccessUnavailableError extends Error {
+  constructor(cause?: unknown) {
+    super("File System Access API is not supported in this browser.");
+    this.name = "FileSystemAccessUnavailableError";
+    // Error.cause is standard (ES2022); this project targets ES2020 so the
+    // lib doesn't type it. Assign via cast — the property is real at runtime
+    // in every target browser. (Same pattern as RecorderPermissionError.)
+    (this as Error & { cause?: unknown }).cause = cause;
   }
 }
 
@@ -130,6 +151,9 @@ export class FileSystemAccessAdapter implements StorageAdapter {
    * showDirectoryPicker() and requestPermission() require a transient
    * activation, or the browser rejects them. */
   async authenticate(): Promise<void> {
+    if (typeof window.showDirectoryPicker !== "function") {
+      throw new FileSystemAccessUnavailableError();
+    }
     let handle = this.root ?? (await this.storedHandle());
     if (!handle) {
       handle = await window.showDirectoryPicker({ mode: "readwrite" });
