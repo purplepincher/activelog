@@ -12,16 +12,6 @@ import type {
   EditableFields,
 } from "../types/log-entry";
 
-// TODO: confirm against core/types/log-entry.ts once merged.
-// This builder assumes the trimmed, domain-neutral LogEntry shape described in
-// docs/ACTIVELOG_FIRST_SLICE.md §1 item 1 — keyed by `dev` + `seq` (not deckboss's
-// single uuid `id`), optional `gps`, additive `corrections` + `thread_id`, and a
-// neutral `tags: string[]` in place of deckboss's fishing-specific `entities`.
-// Field names assumed here: dev, seq, ts, gps, audio, transcript, tags, source,
-// thread_id, corrections. If the merged type differs (e.g. adds `type`/`mono` from
-// the envelope, renames `ts`, etc.), adjust buildEntry's object literal to match —
-// `tsc` will name exactly the mismatched fields.
-
 interface BuildEntryParams {
   dev: string;
   seq: number;

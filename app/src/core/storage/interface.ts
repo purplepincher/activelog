@@ -106,6 +106,16 @@ export function entryPath(timestamp: string | null, id: string): string {
   return `${STORAGE_ROOT}/${yyyy}/${mm}/${dd}/${id}.md`;
 }
 
+/**
+ * Full on-disk path for an id-keyed attachment: `${ATTACHMENTS_DIR}/${id}.${ext}`.
+ *
+ * Not yet wired up. Phase 1 audio attachments are named `${dev}_${seq}_audio.${ext}`
+ * (see `buildAudioMeta` in entry-builder.ts) and written directly via
+ * `${ATTACHMENTS_DIR}/${entry.audio.filename}` in App.tsx, because `AudioMeta.filename`
+ * is a bare filename, not an id. Kept as the id-keyed parallel to `entryPath` for a
+ * future attachment type that is naturally keyed by entry id; reconcile the two
+ * naming schemes when that lands.
+ */
 export function attachmentPath(id: string, ext: string): string {
   return `${ATTACHMENTS_DIR}/${id}.${ext}`;
 }
